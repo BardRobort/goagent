@@ -39,7 +39,8 @@ from proxylib import CertUtility
 class VPSAuthFilter(BaseProxyHandlerFilter):
     """authorization filter"""
     auth_info = "Proxy authentication required"""
-    white_list = set(['127.0.0.1'])
+    #white_list = set(['127.0.0.1'])
+    white_list = set()
 
     def __init__(self, filename):
         self.filename = filename
@@ -120,7 +121,7 @@ def main():
     if not os.path.exists(authfile):
         logging.info('autfile %r not exists, create it', authfile)
         with open(authfile, 'wb') as fp:
-            username = random_hostname()
+            username = random_hostname().split('.')[1]
             password = '123456'
             data = '%s %s\n' % (username, password)
             fp.write(data)

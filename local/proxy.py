@@ -206,6 +206,7 @@ from proxylib import StripPluginEx
 from proxylib import URLRewriteFilter
 from proxylib import UserAgentFilter
 from proxylib import XORCipher
+from proxylib import forward_socket
 
 
 def is_google_ip(ipaddr):
@@ -619,38 +620,30 @@ class PHPFetchPlugin(BaseFetchPlugin):
 class VPSFetchPlugin(BaseFetchPlugin):
     """vps fetch plugin"""
 
-    def __init__(self, fetchservers, username, password):
+    def __init__(self, fetchservers):
         BaseFetchPlugin.__init__(self)
         self.fetchservers = fetchservers
-        self.username = username
-        self.password = password
-        self.fake_headers = {}
 
     def handle(self, handler, **kwargs):
-        if handler.command == 'CONNECT':
-            return self.handle_connect(handler, **kwargs)
+        fetchserver = self.fetchservers[0]
+        scheme, username, password, netloc = ProxyUtil.parse_proxy(fetchserver)
+        if scheme != 'https':
+            raise ValueError('VPSFetchPlugin current only support https protocol')
+        if netloc.rfind(':') <= netloc.rfind(']'):
+            # no port number
+            host = netloc
+            port = 443 if scheme == 'https' else 80
         else:
-            return self.handle_method(handler, **kwargs)
-
-    def handle_connect(self, handler, **kwargs):
-        return
-
-    def handle_method(self, handler, **kwargs):
-        method = handler.command
-        url = handler.path
-        headers = dict((k.title(), v) for k, v in handler.headers.items() if k.title() not in handler.net2.skip_headers)
-        x_headers = {}
-        if 'Host' in headers:
-            x_headers['Host'] = headers.pop('Host')
-        if 'Cookie' in headers:
-            x_headers['Cookie'] = headers.pop('Cookie')
-        headers['Host'] = 'www.%s.com' % self.username
-        self.fake_headers = headers.copy()
-        fetchserver = random.choice(self.fetchservers)
-        response = handler.net2.create_http_request(handler.command, fetchserver, headers, handler.body, handler.net2.connect_timeout)
-        if not response:
-            raise socket.error(errno.ECONNRESET, 'urlfetch %r return None' % url)
-        #TODO
+            host, _, port = netloc.rpartition(':')
+            port = int(port)
+        request_data = ''
+        request_data += '%s %s %s\r\n' % (handler.command, handler.path, handler.protocol)
+        request_data += ''.join('%s: %s\r\n' % (k.title(), v) for k, v in handler.headers.items() if k.title() not in handler.net2.skip_headers)
+        request_data += 'Proxy-Authorization: Baisic %s\r\n' % base64.b64encode('%s:%s' % (username, password)).strip()
+        request_data += '\r\n'
+        sock = handler.net2.create_ssl_connection(host, port, handler.net2.connect_timeout, cache_key=netloc)
+        sock.sendall(request_data)
+        forward_socket(sock, handler.connection, 60, bufsize=256*1024)
 
 
 class GAEFetchFilter(BaseProxyHandlerFilter):
